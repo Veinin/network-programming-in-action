@@ -1,0 +1,9 @@
+ADD_EXECUTABLE(read_line_server read_line_server.c) 
+ADD_EXECUTABLE(read_line_client read_line_client.c)
+ADD_EXECUTABLE(read_package_server read_package_server.c) 
+ADD_EXECUTABLE(read_package_client read_package_client.c)
+
+TARGET_LINK_LIBRARIES(read_line_server unp)
+TARGET_LINK_LIBRARIES(read_line_client unp)
+TARGET_LINK_LIBRARIES(read_package_server unp)
+TARGET_LINK_LIBRARIES(read_package_client unp)
