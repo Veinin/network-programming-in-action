@@ -10,7 +10,7 @@ Unix 的各种实现为上面这个问题提供了更加高效的解决方案，
 
 ### epoll 函数 API
 
-1. 创建 `epoll` 对象
+1.创建 `epoll` 对象
 
 ```c
 #include <sys / epoll.h>
@@ -25,4 +25,44 @@ int epoll_create1(int flags);
 
 而 `epoll_create1` 函数是 Linux内核版本2.6.27和glibc版本2.9的旧函数，它和 `epoll_create` 差不多，当 `flags` 为0时，它和 `epoll_create` 函数是一样的。另外也还可以设`flag` 的值为 `EPOLL_CLOEXEC`，会把文件描述符上设置为 `close-on-exec`，其目的是在 `fork` 子进程时执行 `exec` 的时候，清理掉父进程创建的 `socket` 套接字，防止套接字泄露给子进程。
 
-2. 
+2.控制文件描述符
+
+```c
+#include <sys/epoll.h>
+int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
+```
+
+参数 `epfd` 是 `epoll_create` 函数创建的文件描述符。
+
+参数 `op` 指定对目标文件描述符的 `fd` 的操作类型，它可以使用一下3个宏操作：
+
+- EPOLL_CTL_ADD，把文件描述符 `fd` 注册到 `epoll` 实例中去。
+- EPOLL_CTL_MOD，修改文件描述符 `fd` 关联的事件。
+- EPOLL_CTL_DEL，删除（取消注册）目标文件描述符 `fd` 的事件。
+
+参数 `event` 告诉内核对于描述符 `fd` 需要监听那些事件， `struct epoll_event` 定义如下：
+
+```c
+typedef union epoll_data {
+    void        *ptr;
+    int          fd;
+    uint32_t     u32;
+    uint64_t     u64;
+} epoll_data_t;
+
+struct epoll_event {
+    uint32_t     events;      /* Epoll events */
+    epoll_data_t data;        /* User data variable */
+};
+```
+
+其中 events 可以通过以下宏操作进行或运算得出要监听的事件集合：
+
+- EPOLLIN，关联文件描述符可读操作。
+- EPOLLOUT，关联文件描述符可写操作。
+- EPOLLRDHUP，套接字对等方关闭连接操作，如果对等端连接断开触发的 `epoll` 事件会包含 `EPOLLIN | EPOLLRDHUP`。
+- EPOLLPRI，产生带外数据。
+- EPOLLERR，调用 `read` 或 `write` 函数时发生异常。
+- EPOLLHUP，
+- EPOLLET，
+- EPOLLONESHOT，
