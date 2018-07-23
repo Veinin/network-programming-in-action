@@ -1,5 +1,24 @@
 #include "unp.h"
 
+int tcp_connect()
+{
+    int sockfd;
+
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        errno_abort("socket error");
+
+    struct sockaddr_in servaddr;
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(SERV_PORT);
+    servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    if (connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+        errno_abort("connect error");
+
+    return sockfd;
+}
+
 void client_poll_handler(int sockfd)
 {
     int nready;
@@ -26,14 +45,15 @@ void client_poll_handler(int sockfd)
 
         if (fds[0].revents & POLLIN)
         {
-            n = Readline(sockfd, recvline, sizeof(recvline));
+            if ((n = readline(sockfd, recvline, sizeof(recvline))) < 0)
+                errno_abort("readline error");
             if (n == 0)
             {
                 printf("server disconnect\n");
                 break;
             }
 
-            printf("echo %d bytes, data receved at %s", n, recvline);
+            printf("echo %ld bytes, data receved at %s", n, recvline);
             memset(&recvline, 0, sizeof(recvline)); 
         }
 
@@ -42,7 +62,10 @@ void client_poll_handler(int sockfd)
             if (fgets(sendline, sizeof(sendline), stdin) == NULL)
                 break;
 
-            Writen(sockfd, sendline, strlen(sendline));
+            n = strlen(sendline);
+            if (writen(sockfd, sendline, n) != n)
+                errno_abort("writen error");
+
             memset(&sendline, 0, sizeof(sendline));
         }
     }
@@ -50,15 +73,9 @@ void client_poll_handler(int sockfd)
 
 int main(void)
 {
-    int sockfd = Socket(AF_INET, SOCK_STREAM, 0);
+    int sockfd;
 
-    struct sockaddr_in servaddr;
-    memset(&servaddr, 0, sizeof(servaddr));
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(SERV_PORT);
-    servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-
-    Connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
+    sockfd = tcp_connect();
 
     client_poll_handler(sockfd);
 

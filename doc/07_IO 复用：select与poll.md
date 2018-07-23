@@ -122,12 +122,31 @@ void echo_handle(int sockfd)
 - 如果对端TCP发送一个FIN（对端进程终止），那么该套接字变为可读，并且read返回0（EOF）。
 - 如果对端TCP发送一个RST（对端主机崩溃并重新启动），那么该套接字变为可读，并且read返回-1，而errno中含有确切的错误码。
 
-下面给出使用 `select` 函数实现的客户端源码（源文件`select_fds.c`）：
+下面给出使用 `select` 函数实现的客户端源码（源文件`select_server.c`）：
 
 ```c
 #include "unp.h"
 
-void fds_select_handler(int sockfd)
+int tcp_connect()
+{
+    int sockfd;
+
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        errno_abort("socket error");
+
+    struct sockaddr_in servaddr;
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(SERV_PORT);
+    servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    if (connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+        errno_abort("connect error");
+
+    return sockfd;
+}
+
+void client_select_handler(int sockfd)
 {
     int count;
     int n;
@@ -146,7 +165,7 @@ void fds_select_handler(int sockfd)
 
     FD_ZERO(&rset);
 
-    while (1)
+    for ( ; ; )
     {
         FD_SET(stdinfd, &rset);
         FD_SET(sockfd, &rset);
@@ -160,8 +179,9 @@ void fds_select_handler(int sockfd)
 
         if (FD_ISSET(sockfd, &rset))
         {
-            n = Readline(sockfd, recvline, sizeof(recvline));
-            if (n == 0)
+            if ((n = readline(sockfd, recvline, sizeof(recvline))) < 0)
+                errno_abort("readline error");
+            else if (n == 0)
             {
                 printf("server disconnect\n");
                 break;
@@ -176,7 +196,10 @@ void fds_select_handler(int sockfd)
             if (fgets(sendline, sizeof(sendline), stdin) == NULL)
                 break;
 
-            Writen(sockfd, sendline, strlen(sendline));
+            n = strlen(sendline);
+            if (writen(sockfd, sendline, n) != n)
+                errno_abort("writen error");
+
             memset(&sendline, 0, sizeof(sendline));
         }
     }
@@ -184,23 +207,18 @@ void fds_select_handler(int sockfd)
 
 int main(void)
 {
-    int sockfd = Socket(AF_INET, SOCK_STREAM, 0);
+    int sockfd;
 
-    struct sockaddr_in servaddr;
-    memset(&servaddr, 0, sizeof(servaddr));
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(SERV_PORT);
-    servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    sockfd = tcp_connect();
 
-    Connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
-
-    fds_select_handler(sockfd);
+    client_select_handler(sockfd);
 
     return 0;
 }
 ```
 
 我们先使用 `fileno` 函数把标准输入 `stdin` 指针转换为对应的描述符 `stdinfd`，并确定最大描述符 `maxfd`。
+
 接下来只需要一个用于检查可读性的描述符集。该集合由 `FD_ZERO` 初始化，并用 `FD_SET` 打开两位：一位对应于标准I/O文件描述符 `stdinfd`，一位对应于套接字 `sockfd`。
 
 然后调用 `select`，如果返回时套接字是可读的，那就先用 `readline` 读入回射文本行，再用输出它。如果标准输入可读，那就先用 `fgets` 读入一行文本，再用 `writen` 把它写到套接字中。
@@ -214,12 +232,34 @@ int main(void)
 ```c
 #include "unp.h"
 
+int tcp_listen()
+{
+    int listenfd;
+
+    if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        errno_abort("socket error");
+
+    struct sockaddr_in servaddr;
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(SERV_PORT);
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+        errno_abort("bind error");
+
+    if (listen(listenfd, SOMAXCONN) < 0)
+        errno_abort("listen error");
+
+    return listenfd;
+}
+
 void server_select_handler(int listenfd)
 {
     int i, maxi, maxfd, connfd, sockfd;
     ssize_t n;
     char buf[MAX_MSG_SIZE];
-    int nready, fds[FD_SETSIZE];
+    int nready, client[FD_SETSIZE];
     fd_set rset, allset;
     socklen_t clilen;
     struct sockaddr_in cliaddr;
@@ -227,12 +267,12 @@ void server_select_handler(int listenfd)
     maxi = -1;
     maxfd = listenfd;
     for (i = 0; i < FD_SETSIZE; i++)
-        fds[i] = -1;
+        client[i] = -1;
 
     FD_ZERO(&allset);
     FD_SET(listenfd, &allset);
 
-    for (;;)
+    for ( ; ; )
     {
         rset = allset;
         nready = select(maxfd + 1, &rset, NULL, NULL, NULL);
@@ -247,34 +287,35 @@ void server_select_handler(int listenfd)
         if (FD_ISSET(listenfd, &rset))
         {
             clilen = sizeof(cliaddr);
-            connfd = Accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);
+            if ((connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen)) < 0)
+                errno_abort("accept error");
 
             printf("new connection, ip = %s port = %d\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 
             for (i = 0; i < FD_SETSIZE; i++)
-                if (fds[i] < 0)
+                if (client[i] < 0)
                 {
-                    fds[i] = connfd;
+                    client[i] = connfd;
                     if (i > maxi)
                         maxi = i;
                     break;
                 }
 
             if (i == FD_SETSIZE)
-                err_quit("too many fdss");
+                err_quit("too many clients");
 
             FD_SET(connfd, &allset);
 
             if (connfd > maxfd)
                 maxfd = connfd;
 
-            if (nready-- <= 0)
+            if (--nready <= 0)
                 continue;
         }
 
         for (i = 0; i <= maxi; i++)
         {
-            sockfd = fds[i];
+            sockfd = client[i];
 
             if (sockfd < 0)
                 continue;
@@ -282,18 +323,22 @@ void server_select_handler(int listenfd)
             if (FD_ISSET(sockfd, &rset))
             {
                 memset(&buf, 0, sizeof(buf));
-                n = Readline(sockfd, buf, MAX_MSG_SIZE);
-                if (n == 0)
+
+                if ((n = readline(sockfd, buf, MAX_MSG_SIZE)) < 0)
+                    errno_abort("readline error");
+                else if (n == 0)
                 {
-                    printf("fds disconnect\n");
+                    printf("client disconnect\n");
                     FD_CLR(sockfd, &allset);
-                    Close(sockfd);
-                    fds[i] = -1;
+                    client[i] = -1;
+                    close(sockfd);
                 }
                 else
                 {
-                    printf("echo %ld bytes, data receved at %s", strlen(buf), buf);
-                    Writen(sockfd, &buf, strlen(buf));
+                    printf("echo %ld bytes, data receved at %s", n, buf);
+
+                    if (writen(sockfd, buf, n) != n)
+                        errno_abort("writen error");
                 }
 
                 if (--nready <= 0)
@@ -305,19 +350,9 @@ void server_select_handler(int listenfd)
 
 int main(void)
 {
-    int listenfd, connfd;
+    int listenfd;
 
-    listenfd = Socket(AF_INET, SOCK_STREAM, 0);
-
-    struct sockaddr_in servaddr;
-    memset(&servaddr, 0, sizeof(servaddr));
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(SERV_PORT);
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    Bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
-
-    Listen(listenfd, SOMAXCONN);
+    listenfd = tcp_listen();
 
     server_select_handler(listenfd);
 
@@ -397,6 +432,28 @@ if (fds.revents & (POLLRDNORM | POLLERR)) {
 ```c
 #include "unp.h"
 
+int tcp_listen()
+{
+    int listenfd;
+
+    if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        errno_abort("socket error");
+
+    struct sockaddr_in servaddr;
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(SERV_PORT);
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+        errno_abort("bind error");
+
+    if (listen(listenfd, SOMAXCONN) < 0)
+        errno_abort("listen error");
+
+    return listenfd;
+}
+
 void server_poll_handler(int listenfd)
 {
     int i, maxi, connfd, sockfd;
@@ -405,18 +462,18 @@ void server_poll_handler(int listenfd)
     int nready;
     socklen_t clilen;
     struct sockaddr_in cliaddr;
-    struct pollfd fds[POLL_FD_SIZE];
+    struct pollfd client[POLL_FD_SIZE];
 
     for (i = 0; i < POLL_FD_SIZE; i++)
-        fds[i].fd = -1;
+        client[i].fd = -1;
 
     maxi = 0;
-    fds[0].fd = listenfd;
-    fds[0].events = POLLIN;
+    client[0].fd = listenfd;
+    client[0].events = POLLIN;
 
     for ( ; ; )
     {
-        nready = poll(fds, maxi + 1, -1);
+        nready = poll(client, maxi + 1, -1);
         if (nready < 0)
         {
             if (errno == EINTR)
@@ -425,25 +482,26 @@ void server_poll_handler(int listenfd)
             errno_abort("poll error");
         }
 
-        if (fds[0].revents & POLLIN)
+        if (client[0].revents & POLLIN)
         {
             clilen = sizeof(cliaddr);
-            connfd = Accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);
+            if ((connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen)) < 0)
+                errno_abort("accept error");
 
             printf("new connection, ip = %s port = %d\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 
             for (i = 0; i < POLL_FD_SIZE; i++)
-                if (fds[i].fd < 0)
+                if (client[i].fd < 0)
                 {
-                    fds[i].fd = connfd;
-                    fds[i].events = POLLIN;
+                    client[i].fd = connfd;
+                    client[i].events = POLLIN;
                     if (i > maxi)
                         maxi = i;
                     break;
                 }
 
             if (i == POLL_FD_SIZE)
-                err_quit("too many fdss");
+                err_quit("too many clients");
 
             if (--nready <= 0)
                 continue;
@@ -451,25 +509,29 @@ void server_poll_handler(int listenfd)
 
         for (i = 1; i <= maxi; i++)
         {
-            sockfd = fds[i].fd;
+            sockfd = client[i].fd;
 
             if (sockfd < 0)
                 continue;
 
-            if (fds[i].revents & POLLIN)
+            if (client[i].revents & POLLIN)
             {
                 memset(&buf, 0, sizeof(buf));
-                n = Readline(sockfd, buf, MAX_MSG_SIZE);
-                if (n == 0)
+
+                if ((n = readline(sockfd, buf, MAX_MSG_SIZE)) < 0)
+                    errno_abort("readline error");
+                else if (n == 0)
                 {
-                    printf("fds disconnect\n");
-                    Close(sockfd);
-                    fds[i].fd = -1;
+                    printf("client disconnect\n");
+                    client[i].fd = -1;
+                    close(sockfd);
                 }
                 else
                 {
-                    printf("echo %ld bytes, data receved at %s", strlen(buf), buf);
-                    Writen(sockfd, &buf, strlen(buf));
+                    printf("echo %ld bytes, data receved at %s", n, buf);
+
+                    if (writen(sockfd, buf, n) != n)
+                        errno_abort("writen error");
                 }
 
                 if (--nready <= 0)
@@ -481,19 +543,9 @@ void server_poll_handler(int listenfd)
 
 int main(void)
 {
-    int listenfd, connfd;
+    int listenfd;
 
-    listenfd = Socket(AF_INET, SOCK_STREAM, 0);
-
-    struct sockaddr_in servaddr;
-    memset(&servaddr, 0, sizeof(servaddr));
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(SERV_PORT);
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    Bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
-
-    Listen(listenfd, SOMAXCONN);
+    listenfd = tcp_listen();
 
     server_poll_handler(listenfd);
 

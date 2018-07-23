@@ -1,5 +1,27 @@
 #include "unp.h"
 
+int tcp_listen()
+{
+    int listenfd;
+
+    if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        errno_abort("socket error");
+
+    struct sockaddr_in servaddr;
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(SERV_PORT);
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+        errno_abort("bind error");
+
+    if (listen(listenfd, SOMAXCONN) < 0)
+        errno_abort("listen error");
+
+    return listenfd;
+}
+
 void server_select_handler(int listenfd)
 {
     int i, maxi, maxfd, connfd, sockfd;
@@ -18,7 +40,7 @@ void server_select_handler(int listenfd)
     FD_ZERO(&allset);
     FD_SET(listenfd, &allset);
 
-    for (;;)
+    for ( ; ; )
     {
         rset = allset;
         nready = select(maxfd + 1, &rset, NULL, NULL, NULL);
@@ -33,7 +55,8 @@ void server_select_handler(int listenfd)
         if (FD_ISSET(listenfd, &rset))
         {
             clilen = sizeof(cliaddr);
-            connfd = Accept(listenfd, (struct sockaddr *)&cliaddr, &clilen);
+            if ((connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen)) < 0)
+                errno_abort("accept error");
 
             printf("new connection, ip = %s port = %d\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 
@@ -68,18 +91,22 @@ void server_select_handler(int listenfd)
             if (FD_ISSET(sockfd, &rset))
             {
                 memset(&buf, 0, sizeof(buf));
-                n = Readline(sockfd, buf, MAX_MSG_SIZE);
-                if (n == 0)
+
+                if ((n = readline(sockfd, buf, MAX_MSG_SIZE)) < 0)
+                    errno_abort("readline error");
+                else if (n == 0)
                 {
                     printf("client disconnect\n");
                     FD_CLR(sockfd, &allset);
-                    Close(sockfd);
                     client[i] = -1;
+                    close(sockfd);
                 }
                 else
                 {
-                    printf("echo %ld bytes, data receved at %s", strlen(buf), buf);
-                    Writen(sockfd, &buf, strlen(buf));
+                    printf("echo %ld bytes, data receved at %s", n, buf);
+                    
+                    if (writen(sockfd, buf, n) != n)
+                        errno_abort("writen error");
                 }
 
                 if (--nready <= 0)
@@ -91,19 +118,9 @@ void server_select_handler(int listenfd)
 
 int main(void)
 {
-    int listenfd, connfd;
+    int listenfd;
 
-    listenfd = Socket(AF_INET, SOCK_STREAM, 0);
-
-    struct sockaddr_in servaddr;
-    memset(&servaddr, 0, sizeof(servaddr));
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(SERV_PORT);
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    Bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
-
-    Listen(listenfd, SOMAXCONN);
+    listenfd = tcp_listen();
 
     server_select_handler(listenfd);
 

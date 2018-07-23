@@ -3,24 +3,26 @@
 
 #include "unp.h"
 
-void echo_handle(int connfd)
+int tcp_listen()
 {
-    char data[1024];
-    while(1)
-    {
-        memset(&data, 0, sizeof(data));
-        int ret = Read(connfd, data, sizeof(data));
-        if (ret == 0)
-        {
-            printf("clinet disconnect\n");
-            close(connfd);
-            break;
-        }
+    int listenfd;
 
-        printf("echo %lu bytes, data receved at %s", strlen(data), data);
+    if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+        errno_abort("socket error");
 
-        Write(connfd, data, ret);
-    }
+    struct sockaddr_in servaddr;
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(SERV_PORT);
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+
+    if (bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+        errno_abort("bind error");
+
+    if (listen(listenfd, SOMAXCONN) < 0)
+        errno_abort("listen error");
+
+    return listenfd;
 }
 
 void sig_child_handle(int signo)
@@ -32,6 +34,31 @@ void sig_child_handle(int signo)
         printf("child %d terminated\n", pid);
 }
 
+void echo_handle(int connfd)
+{
+    int ret;
+    char data[1024];
+    
+    while (1)
+    {
+        memset(&data, 0, sizeof(data));
+
+        if ((ret = read(connfd, data, sizeof(data))) == -1)
+            errno_abort("read error");
+        else if (ret == 0)
+        {
+            printf("clinet disconnect\n");
+            close(connfd);
+            break;
+        }
+
+        printf("echo %d bytes, data receved at %s", ret, data);
+
+        if (write(connfd, data, ret) != ret)
+            errno_abort("write error");
+    }
+}
+
 int main()
 {
     int listenfd, connfd;
@@ -39,22 +66,12 @@ int main()
     socklen_t peeraddrlen = sizeof(peeraddr);
     pid_t pid;
 
-    listenfd = Socket(AF_INET, SOCK_STREAM, 0);
-
-    struct sockaddr_in servaddr;
-    memset(&servaddr, 0, sizeof(servaddr));
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(SERV_PORT);
-    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    Bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr));
-
-    Listen(listenfd, SOMAXCONN);
+    listenfd = tcp_listen();
 
     signal(SIGCHLD, sig_child_handle);
     signal(SIGPIPE, SIG_IGN);
 
-    while (1)
+    for ( ; ; )
     {
         if ((connfd = accept(listenfd, (struct sockaddr *)&peeraddr, &peeraddrlen)) < 0)
             errno_abort("accept error");
