@@ -39,83 +39,94 @@ static void fd_close(int sockfd)
 
 static int fd_add(int efd, int sockfd)
 {
-    struct epoll_event ev;
-    ev.events = POLLIN;
-    
+    struct epoll_event event;
+    event.events = POLLIN | EPOLLET;
+    event.data.fd = sockfd;
+    return epoll_ctl(efd, EPOLL_CTL_ADD, sockfd, event);
 }
 
-static void fd_delete(int kfd, int sockfd)
+static void fd_delete(int efd, int sockfd)
 {
-    struct kevent event;
-    EV_SET(&event, sockfd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-    kevent(kfd, &event, 1, NULL, 0, NULL);
+    epoll_ctr(efd, EPOLL_CTL_DELETE, sockfd, NULL);
 }
 
-static void on_connect(int kfd, int listenfd, int size)
+static int fd_nonbloking(int fd)
+{
+    int flags;
+
+    flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1)
+        return -1;
+
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+static void on_connect(int kfd, int listenfd)
 {
     int j;
     int connfd;
     socklen_t clilen;
     struct sockaddr_in cliaddr;
 
-    for (j = 0; j < size; j++)
-    {
-        clilen = sizeof(cliaddr);
-        if ((connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen)) < 0)
-            errno_abort("accept error");
+    clilen = sizeof(cliaddr);
+    if ((connfd = accept(listenfd, (struct sockaddr *)&cliaddr, &clilen)) < 0)
+        errno_abort("accept error");
 
-        printf("new connection, ip = %s port = %d\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
+    printf("new connection, ip = %s port = %d\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 
-        if (fd_add(kfd, connfd) < 0)
-            errno_abort("fd_add error");
-    }
+    if (fd_nonbloking(connfd) < 0)
+        errno_abort("fd_nonbloking error");
+
+    if (fd_add(kfd, connfd) < 0)
+        errno_abort("fd_add error");
 }
 
-static void on_message(int kfd, int sockfd, int size)
+static void on_message(int efd, int sockfd)
 {
     int n;
     char buf[MAX_MSG_SIZE] = {0};
 
-    if ((n = recv(sockfd, buf, size, 0)) != size)
-        errno_abort("recv error");
+    if ((n = readline(sockfd, buf, MAX_MSG_SIZE)) < 0)
+        errno_abort("readline error");
     else if (n == 0)
     {
         printf("client disconnect\n");
-        fd_delete(kfd, sockfd);
+        fd_delete(efd, sockfd);
         fd_close(sockfd);
     }
     else
     {
-        printf("echo %d bytes, data receved at %s", size, buf);
+        printf("echo %ld bytes, data receved at %s", n, buf);
 
-        if (send(sockfd, buf, n, 0) != n)
+        if (writen(sockfd, buf, n) != n)
             errno_abort("writen error");
     }
 }
 
-static void echo_handle(int kfd, int listenfd)
+static void echo_handle(int efd, int listenfd)
 {
-    int i, nready, sockfd, size;
-    struct kevent events[POLL_FD_SIZE];
+    int i, nready, sockfd;
+    struct epoll_event event;
+    struct epoll_event events[POLL_FD_SIZE];
 
     for (;;)
     {
-        nready = kevent(kfd, NULL, 0, events, POLL_FD_SIZE, NULL);
+        nready = epoll_wait(efd, &events, POLL_FD_SIZE, -1);
         if (nready < 0)
-            errno_abort("kevent error");
+            errno_abort("epoll_wait error");
 
         for (i = 0; i < nready; i++)
         {
-            sockfd = events[i].ident;
-            size = events[i].data;
+            event = events[i];
+            sockfd = event.data.fd;
 
             if (sockfd == listenfd)
             {
-                on_connect(kfd, listenfd, size);
+                on_connect(efd, sockfd);
             }
             else
             {
-                on_message(kfd, sockfd, size);
+                on_message(efd, sockfd);
             }
         }
     }
@@ -123,17 +134,20 @@ static void echo_handle(int kfd, int listenfd)
 
 int main()
 {
-    int kfd, listenfd;
+    int efd, listenfd;
 
     listenfd = tcp_listen();
 
-    if ((kfd = fd_create()) < 0)
+    if (fd_nonbloking(listenfd) < 0)
+        errno_abort("fd_nonbloking error");
+
+    if ((efd = fd_create()) < 0)
         errno_abort("fd_create error");
 
-    if (fd_add(kfd, listenfd) < 0)
+    if (fd_add(efd, listenfd) < 0)
         errno_abort("fd_add error");
 
-    echo_handle(kfd, listenfd);
+    echo_handle(efd, listenfd);
 
     return 0;
 }

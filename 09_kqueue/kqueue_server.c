@@ -1,6 +1,7 @@
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>
+#include <fcntl.h>
 
 #include "unp.h"
 
@@ -53,6 +54,17 @@ static void fd_delete(int kfd, int sockfd)
     kevent(kfd, &event, 1, NULL, 0, NULL);
 }
 
+static int fd_nonbloking(int fd)
+{
+    int flags;
+
+    flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1)
+        return -1;
+
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
 static void on_connect(int kfd, int listenfd, int size)
 {
     int j;
@@ -67,6 +79,9 @@ static void on_connect(int kfd, int listenfd, int size)
             errno_abort("accept error");
 
         printf("new connection, ip = %s port = %d\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
+
+        if (fd_nonbloking(connfd) < 0)
+            errno_abort("fd_nonbloking error");
 
         if (fd_add(kfd, connfd) < 0)
             errno_abort("fd_add error");
@@ -128,6 +143,9 @@ int main()
     int kfd, listenfd;
 
     listenfd = tcp_listen();
+
+    if (fd_nonbloking(listenfd) < 0)
+        errno_abort("fd_nonbloking error");
 
     if ((kfd = fd_create()) < 0)
         errno_abort("fd_create error");
