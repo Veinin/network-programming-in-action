@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <arpa/inet.h>
 
-void print_byte_order(const char *p)
+void print_byte_order(const unsigned char *p)
 {
 	printf("%0x %0x %0x %0x\n", p[0], p[1], p[2], p[3]);
 	if (p[0] == 2 && p[1] == 1)

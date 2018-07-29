@@ -1,0 +1,2 @@
+ADD_EXECUTABLE(kqueue_server kqueue_server.c)
+TARGET_LINK_LIBRARIES(kqueue_server unp)
