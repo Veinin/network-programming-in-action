@@ -573,8 +573,8 @@ int main()
 
 ## 参考
 
-[epoll(7) - Linux Programmer's Manual](http://man7.org/linux/man-pages/man7/epoll.7.html)
-[epoll 维基百科](https://zh.wikipedia.org/wiki/Epoll)
-[kqueue(2) - FreeBSD Manual Pages](https://www.freebsd.org/cgi/man.cgi?query=kqueue&sektion=2)
-[kqueue tutorial](https://wiki.netbsd.org/tutorials/kqueue_tutorial/#index1h1)
-[IBM developerWorks](https://www.ibm.com/developerworks/cn/aix/library/1105_huangrg_kqueue/index.html)
+- [epoll(7) - Linux Programmer's Manual](http://man7.org/linux/man-pages/man7/epoll.7.html)
+- [epoll 维基百科](https://zh.wikipedia.org/wiki/Epoll)
+- [kqueue(2) - FreeBSD Manual Pages](https://www.freebsd.org/cgi/man.cgi?query=kqueue&sektion=2)
+- [kqueue tutorial](https://wiki.netbsd.org/tutorials/kqueue_tutorial/#index1h1)
+- [IBM developerWorks](https://www.ibm.com/developerworks/cn/aix/library/1105_huangrg_kqueue/index.html)

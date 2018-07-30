@@ -29,7 +29,7 @@
 
 在陈硕的《Linux多线程网络服务端编程》书籍中，作者总结了12种常见的网络程序设计方案：
 
-![network_model](images/networkd_model.png)
+![network_model](images/network_model.png)
 
 ### accept+read/write
 
