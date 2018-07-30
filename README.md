@@ -3,12 +3,12 @@
 ## 目录
 
 * 入门
-  * [TCP/IP模型](./dock/1_0_tcp_ip_model.md)
+  * [TCP/IP模型](./doc/1_0_tcp_ip_model.md)
   * [套接字编程基础](./doc/1_1_get_started_socket_programming.md)
   * [TCP回射服务器](./doc/1_2_tcp_echo_server.md)
   * [TCP粘包问题](./doc/1_3_tcp_stick_package.md)
   * [TCP状态机](./doc/1_4_tcp_state_machine.md)
-  * [套接字选项](./doc/test.md)
+  * [套接字选项](./doc/1_5_scoket_options.md)
 
 * 设计
   * [C10K 与 C10M 问题详解](./dock/2_0_the_c10k_and_c10m_problem.md)

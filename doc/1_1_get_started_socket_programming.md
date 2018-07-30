@@ -171,6 +171,7 @@ int socket(int family, int type, int protocol); // 返回：若成功则为非�
 ```
 
 其中family参数指明协议族，该参数也往往被称为协议域，当前网络大部分支持的是IPv4，代码中最常用的将会是 AF_INET:
+
 | family | 说明 |
 |---|---|
 | AF_INET| IPv4协议 |
@@ -180,6 +181,7 @@ int socket(int family, int type, int protocol); // 返回：若成功则为非�
 | AF_KEY | 密钥套接字 |
 
 type 参数指明套接字发送和接收数据的方式：
+
 | type | 说明 |
 |---|---|
 | SOCK_STREAM | 字节流套接字 |
@@ -188,6 +190,7 @@ type 参数指明套接字发送和接收数据的方式：
 | SOCK_RAW | 原始套接字 |
 
 protocol参数表示发送数据时socket应该使用的协议，该值为0时将会选取默认的实现协议：
+
 | protocol | 说明 |
 |---|---|
 | IPPROTO_TCP | TCP 传输协议 |
