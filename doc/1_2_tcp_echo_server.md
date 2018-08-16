@@ -67,6 +67,8 @@ int Socket(int family, int type, int protocol)
 }
 ```
 
+详细的套接字包裹函数请参考源代码文件：`/lib/unp.h` 相关文件实现。
+
 ## 实现
 
 基本的TCP客户/服务程序流程如下图所示：
